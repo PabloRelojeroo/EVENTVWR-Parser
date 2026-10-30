@@ -27,7 +27,6 @@ Tool para ss que lee los eventos de windows y te los muestra todos juntos en un 
 ## fileless
 
 Tiene un detector que flaggea los scripts raris en rojo. Salta con cosas como:
-- Descarga + ejecucion (`irm`/`iwr`/`DownloadString` + `iex`)
 - `Assembly::Load`
 - APIs de inyeccion (`VirtualAlloc`, `CreateThread`, etc)
 - Varias cosas chicas juntas: base64, `-enc`, `-w hidden`, ofuscacion, o que powershell mismo lo haya marcado como warning
