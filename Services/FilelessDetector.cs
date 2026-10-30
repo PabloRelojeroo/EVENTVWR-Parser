@@ -6,13 +6,6 @@ public sealed record Detection(bool Fileless, bool AntiForensic, List<string> Re
 
 public static class FilelessDetector {
     const RegexOptions O = RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant;
-
-    static readonly Regex Download = new(
-        @"\b(irm|iwr|wget|curl|Invoke-RestMethod|Invoke-WebRequest|Start-BitsTransfer)\b|Net\.WebClient|Download(String|Data|File)(Async)?\s*\(|OpenRead\s*\(|Net\.Http\.HttpClient|GetStringAsync|GetByteArrayAsync", O);
-
-    static readonly Regex Exec = new(
-        @"\b(iex|Invoke-Expression)\b|\[ScriptBlock\]::Create|\.InvokeScript\s*\(|InvokeCommand\.(NewScriptBlock|InvokeScript)|&\s*\(\s*\$|\.\s*\(\s*\$\w+\s*\)", O);
-
     static readonly Regex Reflective = new(
         @"\[(System\.)?Reflection\.Assembly\]::(Load|LoadFile|LoadFrom|UnsafeLoadFrom)|\[AppDomain\]::CurrentDomain\.Load|::Load\s*\(\s*\[(System\.)?Convert\]|\.EntryPoint\.Invoke|GetMethod\(\s*['""]Main", O);
 
@@ -49,13 +42,9 @@ public static class FilelessDetector {
 
         if (!trusted && !string.IsNullOrWhiteSpace(text)) {
             var score = 0;
-            var dl = Download.IsMatch(text);
-            var ex = Exec.IsMatch(text);
             var refl = Reflective.IsMatch(text);
             var mem = Memory.IsMatch(text);
 
-            if (dl) { score += 2; reasons.Add("Descarga algo de internet"); }
-            if (ex) { score += 2; reasons.Add("Ejecuta iex"); }
             if (refl) { score += 3; reasons.Add("Carga Assembly.Load"); }
             if (mem) { score += 3; reasons.Add("Usa APIs de memoria/inyeccion"); }
             if (Encoded.IsMatch(text)) { score += 2; reasons.Add("Tiene base64 o -enc"); }
@@ -63,7 +52,7 @@ public static class FilelessDetector {
             if (IsObfuscated(text)) { score += 2; reasons.Add("Script ofuscado"); }
             if (flaggedByPowerShell) { score += 2; reasons.Add("PowerShell lo marco como sospechoso"); }
 
-            fileless = (dl && ex) || refl || mem || score >= 5;
+            fileless = refl || mem || score >= 5;
         }
 
         var anti = false;
