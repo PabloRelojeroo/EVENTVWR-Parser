@@ -1,7 +1,7 @@
 <Window x:Class="EventvwrParser.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="EVENTVWR Parser" Height="800" Width="1360" MinWidth="1000" MinHeight="580"
+        Title="EVENTVWR Parser" Height="800" Width="1360" MinWidth="1100" MinHeight="580"
         Background="{StaticResource Bg}" Foreground="{StaticResource Text}"
         FontFamily="Segoe UI" FontSize="13" WindowStartupLocation="CenterScreen"
         TextOptions.TextFormattingMode="Display">
@@ -25,16 +25,18 @@
                     <Border Style="{StaticResource Chip}" Margin="18,0,0,0">
                         <TextBlock x:Name="BootText" FontSize="12" Foreground="{StaticResource Muted}" Text="Boot —"/>
                     </Border>
-                    <Border Style="{StaticResource Chip}" Margin="8,0,0,0" ToolTip="hora de logon (explorer.exe), lo que este despues de esto esta en instancia">
+                    <Border x:Name="LogonChip" Style="{StaticResource Chip}" Margin="8,0,0,0">
                         <TextBlock x:Name="LogonText" FontSize="12" Foreground="{StaticResource Accent}" Text="Logon —"/>
                     </Border>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <TextBox x:Name="SearchBox" Style="{StaticResource Input}" Width="340"
-                             Tag="Buscar... ej: comando ejecutado, iex, prefetch" TextChanged="OnInputChanged"/>
+                             TextChanged="OnInputChanged"/>
                     <TextBox x:Name="IdsBox" Style="{StaticResource Input}" Width="150" Margin="8,0,0,0"
                              Tag="IDs: 400,600,800" TextChanged="OnInputChanged"/>
-                    <Button x:Name="RefreshButton" Content="Actualizar" Style="{StaticResource Btn}" Margin="8,0,0,0" Click="OnRefresh"/>                </StackPanel>
+                    <Button x:Name="RefreshButton" Style="{StaticResource Btn}" Margin="8,0,0,0" Click="OnRefresh"/>
+                    <Button x:Name="LanguageButton" Style="{StaticResource BtnGhost}" Padding="10,7" Margin="8,0,0,0" Click="OnLanguage"/>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -47,11 +49,11 @@
             <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Bottom" Margin="18,12,16,18">
-                        <CheckBox x:Name="OnlyInstance" Content="Solo en instancia" Checked="OnToggle" Unchecked="OnToggle"/>
-                        <CheckBox x:Name="HideNoise" Content="Ocultar duplicados" IsChecked="True" Margin="0,12,0,0"
+                        <CheckBox x:Name="OnlyInstance" Checked="OnToggle" Unchecked="OnToggle"/>
+                        <CheckBox x:Name="HideNoise" IsChecked="True" Margin="0,12,0,0"
                                   Checked="OnToggle" Unchecked="OnToggle"/>
                     </StackPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="CATEGORIAS" Style="{StaticResource Caption}" Margin="20,16,0,8"/>
+                    <TextBlock x:Name="CategoriesCaption" DockPanel.Dock="Top" Style="{StaticResource Caption}" Margin="20,16,0,8"/>
                     <ListBox x:Name="CategoryList" Background="Transparent" BorderThickness="0" Padding="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ItemContainerStyle="{StaticResource SideItem}" SelectionChanged="OnCategoryChanged">
@@ -82,7 +84,7 @@
 
                 <DataGrid x:Name="EventsGrid" SelectionChanged="OnEventSelected">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="HORA" Binding="{Binding TimeText}" SortMemberPath="Time" Width="150">
+                        <DataGridTextColumn x:Name="TimeColumn" Binding="{Binding TimeText}" SortMemberPath="Time" Width="176">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="FontFamily" Value="Cascadia Mono, Consolas"/>
@@ -99,14 +101,14 @@
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="TIPO" Binding="{Binding Type}" Width="180">
+                        <DataGridTextColumn x:Name="TypeColumn" Binding="{Binding TypeText}" Width="180">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="RESUMEN" Binding="{Binding Summary}" Width="*">
+                        <DataGridTextColumn x:Name="SummaryColumn" Binding="{Binding SummaryText}" Width="*">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
@@ -127,13 +129,9 @@
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
-                                        <Border Background="#33FF5C6C" CornerRadius="4" Padding="6,1" Margin="0,0,6,0"
+                                        <Border Background="#33FF5C6C" CornerRadius="4" Padding="6,1"
                                                 Visibility="{Binding IsFileless, Converter={StaticResource BoolVis}}">
                                             <TextBlock Text="FILELESS" Foreground="{StaticResource Red}" FontSize="10" FontWeight="Bold"/>
-                                        </Border>
-                                        <Border Background="#33FFB454" CornerRadius="4" Padding="6,1"
-                                                Visibility="{Binding IsAntiForensic, Converter={StaticResource BoolVis}}">
-                                            <TextBlock Text="ANTI-FORENSE" Foreground="{StaticResource Orange}" FontSize="10" FontWeight="Bold"/>
                                         </Border>
                                     </StackPanel>
                                 </DataTemplate>
@@ -144,8 +142,8 @@
 
                 <Border x:Name="LoadingOverlay" Background="{StaticResource Bg}" Visibility="Collapsed">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock Text="Leyendo eventos..." FontSize="15" HorizontalAlignment="Center"/>
-                        <TextBlock Text="esto puede tardar un toque" Foreground="{StaticResource Muted}"
+                        <TextBlock x:Name="LoadingTitle" FontSize="15" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="LoadingHint" Foreground="{StaticResource Muted}"
                                    FontSize="12" Margin="0,6,0,0" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </Border>
@@ -161,11 +159,11 @@
                         </Grid.RowDefinitions>
                         <Grid>
                             <StackPanel>
-                                <TextBlock x:Name="DetTitle" FontSize="15" FontWeight="SemiBold" Text="Selecciona un evento"/>
+                                <TextBlock x:Name="DetTitle" FontSize="15" FontWeight="SemiBold"/>
                                 <TextBlock x:Name="DetMeta" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,3,0,0"
                                            TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
-                            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Content="Copiar"
+                            <Button x:Name="CopyButton" HorizontalAlignment="Right" VerticalAlignment="Top"
                                     Style="{StaticResource BtnGhost}" Padding="12,5" Click="OnCopy"/>
                         </Grid>
                         <ItemsControl x:Name="DetReasons" Grid.Row="1" Margin="0,8,0,0">

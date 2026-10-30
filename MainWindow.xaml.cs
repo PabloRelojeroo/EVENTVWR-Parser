@@ -7,22 +7,26 @@ using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using EventvwrParser.Localization;
 using EventvwrParser.Models;
 using EventvwrParser.Services;
 
 namespace EventvwrParser;
 
 public partial class MainWindow : Window {
-    static readonly (string group, string[] types)[] Layout = {
-        (EventCollector.GroupPowerShell, new[] { "Comando ejecutado", "Script ejecutado", "Pipeline .NET / cmdlet", "Historial PSReadLine", "Proceso PowerShell" }),
-        (EventCollector.GroupJournal, new string[0]),
-        (EventCollector.GroupTasks, new[] { EventCollector.TaskStart, EventCollector.TaskEnd, EventCollector.TaskChange }),
-        (EventCollector.GroupLogs, new[] { "Log de eventos borrado" }),
-        (EventCollector.GroupSystem, new[] { "Servicio instalado", "Proceso creado" }),
+    static readonly (Localized group, Localized[] types)[] Layout = {
+        (Strings.GroupPowerShell, new[] { Strings.TypeCommand, Strings.TypeScript, Strings.TypePipeline, Strings.TypePsReadLine, Strings.TypePowerShellProcess }),
+        (Strings.GroupJournal, new Localized[0]),
+        (Strings.GroupTasks, new[] { Strings.TypeTaskStart, Strings.TypeTaskEnd, Strings.TypeTaskChange }),
+        (Strings.GroupLogs, new[] { Strings.TypeLogCleared }),
+        (Strings.GroupSystem, new[] { Strings.TypeServiceInstalled, Strings.TypeProcessCreated }),
     };
 
     readonly DispatcherTimer _debounce;
     List<LogEvent> _events = new();
+    List<Localized> _warnings = new();
+    DateTime _boot;
+    DateTime _logon;
     ICollectionView? _view;
     Func<LogEvent, bool> _category = _ => true;
     string _categoryKey = "all";
@@ -32,6 +36,7 @@ public partial class MainWindow : Window {
 
     public MainWindow() {
         InitializeComponent();
+        ApplyLanguage();
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
         _debounce.Tick += (_, _) => {
             _debounce.Stop();
@@ -44,31 +49,59 @@ public partial class MainWindow : Window {
     async Task LoadAsync() {
         RefreshButton.IsEnabled = false;
         LoadingOverlay.Visibility = Visibility.Visible;
-        StatusText.Text = "Leyendo eventos...";
-        WarnText.Text = "";
+        StatusText.Text = Strings.ReadingEvents;
+        _warnings = new();
+        ShowWarnings();
 
-        var boot = SessionInfo.BootTime;
-        var logon = SessionInfo.LogonTime;
-        BootText.Text = $"Boot  {boot:dd/MM HH:mm}";
-        LogonText.Text = $"Logon  {logon:dd/MM HH:mm}";
+        _boot = SessionInfo.BootTime;
+        _logon = SessionInfo.LogonTime;
+        ShowSessionTimes();
 
         var sw = Stopwatch.StartNew();
-        var result = await Task.Run(() => EventCollector.Collect(logon));
+        var result = await Task.Run(() => EventCollector.Collect(_logon));
         sw.Stop();
 
         _events = result.Events;
         _view = CollectionViewSource.GetDefaultView(_events);
         _view.Filter = Filter;
         EventsGrid.ItemsSource = _view;
-        WarnText.Text = string.Join(" | ", result.Warnings);
-        WarnText.ToolTip = string.Join("\n", result.Warnings);
+        _warnings = result.Warnings;
+        ShowWarnings();
 
         ParseInputs();
         RebuildCategories();
-        UpdateStatus($"cargado en {sw.Elapsed.TotalSeconds:0.0}s");
+        UpdateStatus(Strings.LoadedIn(sw.Elapsed.TotalSeconds));
 
         LoadingOverlay.Visibility = Visibility.Collapsed;
         RefreshButton.IsEnabled = true;
+    }
+
+    void ApplyLanguage() {
+        LanguageButton.Content = Strings.LanguageButton;
+        LanguageButton.ToolTip = Strings.LanguageTip;
+        LogonChip.ToolTip = Strings.LogonTip;
+        SearchBox.Tag = Strings.SearchHint;
+        RefreshButton.Content = Strings.Refresh;
+        OnlyInstance.Content = Strings.OnlyInstance;
+        HideNoise.Content = Strings.HideDuplicates;
+        CategoriesCaption.Text = Strings.Categories;
+        TimeColumn.Header = Strings.ColumnTime;
+        TypeColumn.Header = Strings.ColumnType;
+        SummaryColumn.Header = Strings.ColumnSummary;
+        LoadingTitle.Text = Strings.ReadingEvents;
+        LoadingHint.Text = Strings.LoadingHint;
+        CopyButton.Content = Strings.Copy;
+        ShowSelection();
+    }
+
+    void ShowSessionTimes() {
+        BootText.Text = $"Boot  {Strings.ShortDate(_boot)}";
+        LogonText.Text = $"Logon  {Strings.ShortDate(_logon)}";
+    }
+
+    void ShowWarnings() {
+        WarnText.Text = string.Join(" | ", _warnings);
+        WarnText.ToolTip = string.Join("\n", _warnings);
     }
 
     bool BaseFilter(LogEvent e) =>
@@ -82,13 +115,13 @@ public partial class MainWindow : Window {
         foreach (var term in _terms) {
             if (!(Has(e.Type, term) || Has(e.Group, term) || Has(e.Summary, term) || Has(e.Details, term)
                   || Has(e.Log, term) || Has(e.IdText, term)
-                  || (e.IsFileless && Has("fileless", term)) || (e.IsAntiForensic && Has("anti-forense", term))))
+                  || (e.IsFileless && Has("fileless", term))))
                 return false;
         }
         return true;
     }
 
-    static bool Has(string s, string term) => s.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0;
+    static bool Has(object s, string term) => s.ToString()!.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0;
 
     void ParseInputs() {
         _terms = SearchBox.Text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
@@ -118,15 +151,15 @@ public partial class MainWindow : Window {
         var visible = _events.Where(BaseFilter).ToList();
 
         var items = new List<CategoryItem> {
-            new() { Key = "all", Label = "Todos", Match = _ => true, Weight = FontWeights.SemiBold, Brush = text },
+            new() { Key = "all", Label = Strings.AllEvents, Match = _ => true, Weight = FontWeights.SemiBold, Brush = text },
             new() { Key = "fileless", Label = "FileLess", Match = e => e.IsFileless, Weight = FontWeights.SemiBold, Brush = (Brush)FindResource("Red") },
         };
 
         foreach (var (group, types) in Layout) {
             var g = group;
             items.Add(new CategoryItem {
-                Key = "g:" + g,
-                Label = g,
+                Key = "g:" + g.Id,
+                Label = g.ToString(),
                 Match = e => e.Group == g,
                 Weight = FontWeights.SemiBold,
                 Brush = text,
@@ -135,8 +168,8 @@ public partial class MainWindow : Window {
             foreach (var type in types) {
                 var t = type;
                 items.Add(new CategoryItem {
-                    Key = "t:" + g + ":" + t,
-                    Label = t,
+                    Key = "t:" + g.Id + ":" + t.Id,
+                    Label = t.ToString(),
                     Match = e => e.Group == g && e.Type == t,
                     Brush = muted,
                     Indent = new Thickness(12, 0, 0, 0),
@@ -156,7 +189,7 @@ public partial class MainWindow : Window {
         if (_view == null) return;
         var shown = _view.Cast<object>().Count();
         var fileless = _events.Count(e => e.IsFileless);
-        StatusText.Text = $"{_events.Count} eventos | mostrando {shown} | {fileless} fileless"
+        StatusText.Text = Strings.Status(_events.Count, shown, fileless)
                           + (extra != null ? $" | {extra}" : "");
     }
 
@@ -180,26 +213,37 @@ public partial class MainWindow : Window {
         UpdateStatus();
     }
 
-    void OnEventSelected(object sender, SelectionChangedEventArgs e) {
+    void OnEventSelected(object sender, SelectionChangedEventArgs e) => ShowSelection();
+
+    void ShowSelection() {
         if (EventsGrid.SelectedItem is not LogEvent ev) {
-            DetTitle.Text = "Selecciona un evento";
+            DetTitle.Text = Strings.SelectEvent;
             DetMeta.Text = "";
             DetReasons.ItemsSource = null;
             DetText.Text = "";
             return;
         }
 
-        DetTitle.Text = ev.Type;
-        var meta = $"{ev.Log} | ID {ev.IdText} | {ev.TimeText} | {(ev.InInstance ? "en instancia" : "fuera de instancia")}";
-        if (ev.Related > 0) meta += $" | +{ev.Related} duplicados";
-        if (ev.TimeApprox) meta += " | la hora es aprox (ultima vez q se modifico el archivo)";
+        DetTitle.Text = ev.TypeText;
+        var meta = $"{ev.Log} | ID {ev.IdText} | {ev.TimeText} | {(ev.InInstance ? Strings.InInstance : Strings.OutOfInstance)}";
+        if (ev.Related > 0) meta += $" | {Strings.Duplicates(ev.Related)}";
+        if (ev.TimeApprox) meta += $" | {Strings.ApproxTime}";
         DetMeta.Text = meta;
-        DetReasons.ItemsSource = ev.Reasons;
-        DetText.Text = ev.Details;
+        DetReasons.ItemsSource = ev.Reasons.Select(r => r.ToString()).ToList();
+        DetText.Text = ev.Details.ToString();
         DetText.ScrollToHome();
     }
 
     async void OnRefresh(object sender, RoutedEventArgs e) => await LoadAsync();
+
+    void OnLanguage(object sender, RoutedEventArgs e) {
+        Strings.ToggleLanguage();
+        ApplyLanguage();
+        ShowSessionTimes();
+        ShowWarnings();
+        ApplyInputs();
+        if (LoadingOverlay.Visibility == Visibility.Visible) StatusText.Text = Strings.ReadingEvents;
+    }
 
     void OnCopy(object sender, RoutedEventArgs e) {
         if (EventsGrid.SelectedItem is not LogEvent ev) return;

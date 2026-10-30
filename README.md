@@ -1,5 +1,7 @@
 # EVENTVWR Parser
 
+**Español** | [English](README.en.md)
+
 Tool para ss que lee los eventos de windows y te los muestra todos juntos en un solo lugar, asi no tenes que andar abriendo el visor de eventos y filtrando log por log como un enfermo
 
 ## que lee
@@ -12,7 +14,7 @@ Tool para ss que lee los eventos de windows y te los muestra todos juntos en un 
 
 **journal**
 - `Application` 3079
-- `Ntfs/Operational` 501. Si aparece fsutil.exe lo marca, si no es algun proceso de windows normal (SearchIndexer y eso)
+- `Ntfs/Operational` 501. Si aparece fsutil.exe lo dice en el tipo, si no es algun proceso de windows normal (SearchIndexer y eso)
 
 **tareas programadas** (`TaskScheduler/Operational`)
 - Inicio: 100, 103, 107, 108, 110, 118, 119
@@ -42,6 +44,7 @@ No sean boludos, es muy facil false flaguear esto
 - El buscador busca en todo, podes poner `comando ejecutado`, `iex`, `prefetch`, lo que sea
 - en IDs podes poner varios separados por coma `400,600,800` o un rango `4100-4104`
 - "Ocultar duplicados" junta los 400/600/800 de una misma ejecucion y saca la basura interna de powershell
+- El boton `EN`/`ES` de arriba a la derecha cambia el idioma al toque, sin volver a leer nada. Arranca en español si el windows esta en español, si no en ingles. No guarda nada en la pc, asi que lo elegis cada vez que lo abris. Lo que viene directo de windows (las descripciones de los eventos y eso) queda en el idioma de esa pc
 
 La hora de logon la saca de cuando arranco explorer.exe, asi que si el pibe reinicio el explorer te va a dar una hora mas tarde. tenerlo en cuenta
 

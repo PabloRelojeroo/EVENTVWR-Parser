@@ -3,40 +3,32 @@ using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using EventvwrParser.Localization;
 using EventvwrParser.Models;
 
 namespace EventvwrParser.Services;
 
 public sealed class CollectResult {
     public List<LogEvent> Events { get; set; } = new();
-    public List<string> Warnings { get; set; } = new();
+    public List<Localized> Warnings { get; set; } = new();
 }
 
 public static class EventCollector {
-    public const string GroupPowerShell = "PowerShell";
-    public const string GroupJournal = "Journal";
-    public const string GroupLogs = "Logs";
-    public const string GroupSystem = "Sistema";
-    public const string GroupTasks = "Tareas programadas";
-    public const string TaskStart = "Inicio de tarea";
-    public const string TaskEnd = "Finalizacion de tarea";
-    public const string TaskChange = "Tarea creada/modificada";
-
     const string TaskOperational = "Microsoft-Windows-TaskScheduler/Operational";
 
-    static readonly Dictionary<int, (string type, string label)> TaskIds = new() {
-        [100] = (TaskStart, "La tarea inicio su ejecucion"),
-        [103] = (TaskStart, "Error al iniciar la tarea"),
-        [107] = (TaskStart, "Iniciada por trigger de tiempo"),
-        [108] = (TaskStart, "Iniciada por trigger de evento"),
-        [110] = (TaskStart, "Iniciada a mano por el usuario"),
-        [118] = (TaskStart, "Iniciada al prender la pc"),
-        [119] = (TaskStart, "Iniciada al iniciar sesion"),
-        [201] = (TaskEnd, "Se termino la accion de la tarea"),
-        [102] = (TaskEnd, "Se finalizo la instancia de la tarea"),
-        [106] = (TaskChange, "Tarea registrada"),
-        [140] = (TaskChange, "Tarea actualizada o modificada"),
-        [141] = (TaskChange, "Tarea eliminada"),
+    static readonly Dictionary<int, (Localized type, Localized label)> TaskIds = new() {
+        [100] = (Strings.TypeTaskStart, Strings.TaskStarted),
+        [103] = (Strings.TypeTaskStart, Strings.TaskStartFailed),
+        [107] = (Strings.TypeTaskStart, Strings.TaskTimeTrigger),
+        [108] = (Strings.TypeTaskStart, Strings.TaskEventTrigger),
+        [110] = (Strings.TypeTaskStart, Strings.TaskStartedByUser),
+        [118] = (Strings.TypeTaskStart, Strings.TaskStartedAtBoot),
+        [119] = (Strings.TypeTaskStart, Strings.TaskStartedAtLogon),
+        [201] = (Strings.TypeTaskEnd, Strings.TaskActionCompleted),
+        [102] = (Strings.TypeTaskEnd, Strings.TaskInstanceFinished),
+        [106] = (Strings.TypeTaskChange, Strings.TaskRegistered),
+        [140] = (Strings.TypeTaskChange, Strings.TaskUpdated),
+        [141] = (Strings.TypeTaskChange, Strings.TaskDeleted),
     };
 
     const string WinPs = "Windows PowerShell";
@@ -53,7 +45,7 @@ public static class EventCollector {
 
     public static CollectResult Collect(DateTime logon) {
         var events = new ConcurrentBag<LogEvent>();
-        var warnings = new ConcurrentBag<string>();
+        var warnings = new ConcurrentBag<Localized>();
 
         var jobs = new (string name, Action<ConcurrentBag<LogEvent>> run)[] {
             ("Application", b => Read("Application", new[] { 3079 }, r => b.Add(MapJournal3079(r)))),
@@ -65,7 +57,7 @@ public static class EventCollector {
             ("PowerShell Operational (4104)", b => { foreach (var e in ReadScriptBlocks()) b.Add(e); }),
             ("PSReadLine", b => { foreach (var e in ReadPsReadLine(warnings)) b.Add(e); }),
             ("TaskScheduler", b => {
-                if (!IsLogEnabled(TaskOperational)) warnings.Add("TaskScheduler: el historial esta desactivado");
+                if (!IsLogEnabled(TaskOperational)) warnings.Add(Strings.TaskHistoryDisabled);
                 Read(TaskOperational, TaskIds.Keys.ToArray(), r => b.Add(MapTask(r)));
             }),
         };
@@ -74,9 +66,9 @@ public static class EventCollector {
             try {
                 job.run(events);
             } catch (EventLogNotFoundException) {
-                warnings.Add($"{job.name}: log no encontrado");
+                warnings.Add(Strings.LogNotFound(job.name));
             } catch (UnauthorizedAccessException) {
-                warnings.Add($"{job.name}: sin permisos, abrilo como admin");
+                warnings.Add(Strings.AccessDenied(job.name));
             } catch (Exception ex) {
                 warnings.Add($"{job.name}: {ex.Message}");
             }
@@ -90,7 +82,7 @@ public static class EventCollector {
             return c != 0 ? c : b.Seq.CompareTo(a.Seq);
         });
 
-        return new CollectResult { Events = list, Warnings = warnings.OrderBy(w => w).ToList() };
+        return new CollectResult { Events = list, Warnings = warnings.OrderBy(w => w.ToString()).ToList() };
     }
 
     static void Read(string log, int[] ids, Action<EventRecord> onRecord) {
@@ -105,48 +97,38 @@ public static class EventCollector {
 
     static LogEvent MapJournal3079(EventRecord r) {
         var desc = Describe(r);
-        var e = Base(r, GroupJournal, "Journal USN borrado", desc);
+        var e = Base(r, Strings.GroupJournal, Strings.TypeUsnDeleted, desc);
         e.Summary = OneLine(desc);
-        e.IsAntiForensic = true;
-        e.Reasons.Add("Evento 3079: journal USN eliminado");
         return e;
     }
 
     static LogEvent MapNtfs501(EventRecord r) {
         var desc = Describe(r) + "\n\n" + JoinProps(r);
         var fsutil = desc.IndexOf("fsutil", StringComparison.OrdinalIgnoreCase) >= 0;
-        var e = Base(r, GroupJournal, fsutil ? "Journal borrado (fsutil)" : "Journal eliminado", desc);
+        var e = Base(r, Strings.GroupJournal, fsutil ? Strings.TypeJournalFsutil : Strings.TypeJournalDeleted, desc);
         e.Summary = OneLine(Describe(r));
-        if (fsutil) {
-            e.IsAntiForensic = true;
-            e.Reasons.Add("fsutil.exe borro el journal");
-        }
         return e;
     }
 
     static LogEvent MapSystem(EventRecord r) {
         var desc = Describe(r);
         if (r.Id == 104) {
-            var e = Base(r, GroupLogs, "Log de eventos borrado", desc);
+            var e = Base(r, Strings.GroupLogs, Strings.TypeLogCleared, desc);
             e.Summary = OneLine(desc);
-            e.IsAntiForensic = true;
-            e.Reasons.Add("Se borro un log de eventos");
             return e;
         }
 
-        var svc = Base(r, GroupSystem, "Servicio instalado", desc);
+        var svc = Base(r, Strings.GroupSystem, Strings.TypeServiceInstalled, desc);
         svc.Summary = OneLine($"{Prop(r, 0)} -> {Prop(r, 1)}");
-        ApplyDetection(svc, svc.Summary);
+        ApplyDetection(svc, svc.Summary.ToString());
         return svc;
     }
 
     static LogEvent MapSecurity(EventRecord r) {
         if (r.Id == 1102) {
             var desc = Describe(r);
-            var e = Base(r, GroupLogs, "Log de eventos borrado", desc);
-            e.Summary = "Log de Seguridad borrado";
-            e.IsAntiForensic = true;
-            e.Reasons.Add("Se borro el log de security");
+            var e = Base(r, Strings.GroupLogs, Strings.TypeLogCleared, desc);
+            e.Summary = Strings.SecurityLogCleared;
             return e;
         }
 
@@ -154,8 +136,8 @@ public static class EventCollector {
         var cmd = Prop(r, 8);
         var parent = Prop(r, 13);
         var isPs = PsImage.IsMatch(image);
-        var details = $"Proceso: {image}\nLinea de comando: {cmd}\nProceso padre: {parent}\nUsuario: {Prop(r, 2)}\\{Prop(r, 1)}";
-        var p = Base(r, isPs ? GroupPowerShell : GroupSystem, isPs ? "Proceso PowerShell" : "Proceso creado", details);
+        var details = Strings.ProcessDetails(image, cmd, parent, $"{Prop(r, 2)}\\{Prop(r, 1)}");
+        var p = Base(r, isPs ? Strings.GroupPowerShell : Strings.GroupSystem, isPs ? Strings.TypePowerShellProcess : Strings.TypeProcessCreated, details);
         p.Summary = OneLine(string.IsNullOrWhiteSpace(cmd) ? image : cmd);
         ApplyDetection(p, cmd);
         return p;
@@ -165,7 +147,7 @@ public static class EventCollector {
         var raw = JoinProps(r);
         var host = Match(HostApp, raw);
         var cmd = Match(CmdLine, raw);
-        var e = Base(r, GroupPowerShell, "Comando ejecutado", raw.Trim());
+        var e = Base(r, Strings.GroupPowerShell, Strings.TypeCommand, raw.Trim());
         e.Summary = OneLine(!string.IsNullOrWhiteSpace(host) ? host : !string.IsNullOrWhiteSpace(cmd) ? cmd : FirstLine(raw));
         ApplyDetection(e, host + "\n" + cmd);
         return e;
@@ -176,26 +158,28 @@ public static class EventCollector {
         var payload = Prop(r, 2);
         var command = Match(CtxCommand, context);
         var host = Match(CtxHost, context);
-        var details = $"{payload}\n\nContexto: {context}";
-        var e = Base(r, GroupPowerShell, "cmdlet", details);
+        var e = Base(r, Strings.GroupPowerShell, Strings.TypeCmdlet, Strings.CmdletDetails(payload, context));
         e.Summary = OneLine($"{command}  |  {FirstLine(payload)}");
         ApplyDetection(e, payload + "\n" + host);
         return e;
     }
 
     static LogEvent MapTask(EventRecord r) {
-        var (type, label) = TaskIds.TryGetValue(r.Id, out var t) ? t : (TaskStart, "Evento de tarea");
+        var (type, label) = TaskIds.TryGetValue(r.Id, out var t) ? t : (Strings.TypeTaskStart, Strings.TaskEvent);
         var data = EventData(r);
         var task = data.FirstOrDefault(d => d.name == "TaskName").value ?? Prop(r, 0);
         var action = data.FirstOrDefault(d => d.name == "ActionName").value;
 
-        var details = new StringBuilder();
-        details.AppendLine(label);
-        details.AppendLine();
-        foreach (var (name, value) in data) details.AppendLine($"{name}: {value}");
+        var details = label.Map(l => {
+            var sb = new StringBuilder();
+            sb.AppendLine(l);
+            sb.AppendLine();
+            foreach (var (name, value) in data) sb.AppendLine($"{name}: {value}");
+            return sb.ToString();
+        });
 
-        var e = Base(r, GroupTasks, type, details.ToString());
-        e.Summary = OneLine($"{label} - {task}" + (string.IsNullOrWhiteSpace(action) ? "" : $" -> {action}"));
+        var e = Base(r, Strings.GroupTasks, type, details);
+        e.Summary = label.Map(l => OneLine($"{l} - {task}" + (string.IsNullOrWhiteSpace(action) ? "" : $" -> {action}")));
         if (!string.IsNullOrWhiteSpace(action)) ApplyDetection(e, action!);
         return e;
     }
@@ -241,19 +225,13 @@ public static class EventCollector {
             var total = ordered.Max(p => p.total);
             var trusted = IsTrustedPath(path);
 
-            var header = new StringBuilder();
-            header.AppendLine($"ScriptBlock ID: {id}");
-            if (!string.IsNullOrWhiteSpace(path)) header.AppendLine($"Ruta: {path}");
-            if (total > 1) header.AppendLine($"Partes: {ordered.Count}/{total}");
-            header.AppendLine();
-
             var e = new LogEvent {
                 Time = ordered.Min(p => p.time),
                 Id = 4104,
                 Log = PsOperational,
-                Group = GroupPowerShell,
-                Type = "Script ejecutado",
-                Details = header + text,
+                Group = Strings.GroupPowerShell,
+                Type = Strings.TypeScript,
+                Details = Strings.ScriptDetails(id, path, ordered.Count, total, text),
                 Summary = OneLine((string.IsNullOrWhiteSpace(path) ? "" : $"[{Path.GetFileName(path)}]  ") + text),
                 Seq = (int)Math.Min(int.MaxValue, first.rec),
                 IsNoise = NoiseScript.IsMatch(text.Trim()),
@@ -263,7 +241,7 @@ public static class EventCollector {
         }
     }
 
-    static IEnumerable<LogEvent> ReadPsReadLine(ConcurrentBag<string> warnings) {
+    static IEnumerable<LogEvent> ReadPsReadLine(ConcurrentBag<Localized> warnings) {
         var usersRoot = Path.Combine(Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\", "Users");
         foreach (var userDir in SafeDirs(usersRoot)) {
             var dir = Path.Combine(userDir, @"AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine");
@@ -288,10 +266,10 @@ public static class EventCollector {
                         Id = 0,
                         Seq = i,
                         Log = $"PSReadLine ({user})",
-                        Group = GroupPowerShell,
-                        Type = "Historial PSReadLine",
+                        Group = Strings.GroupPowerShell,
+                        Type = Strings.TypePsReadLine,
                         Summary = OneLine(cmd),
-                        Details = $"Archivo: {file}\nComando {i + 1} de {commands.Count}\nUltima modificacion:{written:dd/MM/yyyy HH:mm:ss}\n\n{cmd}",
+                        Details = Strings.PsReadLineDetails(file, i + 1, commands.Count, written, cmd),
                     };
                     ApplyDetection(e, cmd);
                     yield return e;
@@ -350,7 +328,7 @@ public static class EventCollector {
         }
     }
 
-    static LogEvent Base(EventRecord r, string group, string type, string details) => new() {
+    static LogEvent Base(EventRecord r, Localized group, Localized type, Localized details) => new() {
         Time = r.TimeCreated ?? DateTime.MinValue,
         Id = r.Id,
         Seq = (int)Math.Min(int.MaxValue, r.RecordId ?? 0),
@@ -363,7 +341,6 @@ public static class EventCollector {
     static void ApplyDetection(LogEvent e, string text, bool trusted = false, bool flagged = false) {
         var d = FilelessDetector.Analyze(text, trusted, flagged);
         e.IsFileless |= d.Fileless;
-        e.IsAntiForensic |= d.AntiForensic;
         foreach (var reason in d.Reasons)
             if (!e.Reasons.Contains(reason)) e.Reasons.Add(reason);
     }

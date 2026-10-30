@@ -285,9 +285,6 @@
                 <DataTrigger Binding="{Binding InInstance}" Value="False">
                     <Setter Property="Opacity" Value="0.5"/>
                 </DataTrigger>
-                <DataTrigger Binding="{Binding IsAntiForensic}" Value="True">
-                    <Setter Property="BorderBrush" Value="{StaticResource Orange}"/>
-                </DataTrigger>
                 <DataTrigger Binding="{Binding IsFileless}" Value="True">
                     <Setter Property="BorderBrush" Value="{StaticResource Red}"/>
                 </DataTrigger>

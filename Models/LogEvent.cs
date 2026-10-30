@@ -1,3 +1,5 @@
+using EventvwrParser.Localization;
+
 namespace EventvwrParser.Models;
 
 public sealed class LogEvent {
@@ -6,18 +8,19 @@ public sealed class LogEvent {
     public int Id { get; set; }
     public int Seq { get; set; }
     public string Log { get; set; } = "";
-    public string Group { get; set; } = "";
-    public string Type { get; set; } = "";
-    public string Summary { get; set; } = "";
-    public string Details { get; set; } = "";
+    public Localized Group { get; set; } = Localized.Empty;
+    public Localized Type { get; set; } = Localized.Empty;
+    public Localized Summary { get; set; } = Localized.Empty;
+    public Localized Details { get; set; } = Localized.Empty;
     public bool IsFileless { get; set; }
-    public bool IsAntiForensic { get; set; }
     public bool InInstance { get; set; }
     public bool IsNoise { get; set; }
     public int Related { get; set; }
-    public List<string> Reasons { get; } = new();
+    public List<Localized> Reasons { get; } = new();
 
-    public string TimeText => (TimeApprox ? "~ " : "") + Time.ToString("dd/MM/yy HH:mm:ss");
+    public string TimeText => (TimeApprox ? "~ " : "") + Strings.FullDate(Time);
     public string IdText => Id == 0 ? "—" : Id.ToString();
     public string RelatedText => Related > 0 ? $"+{Related}" : "";
+    public string TypeText => Type.ToString();
+    public string SummaryText => Summary.ToString();
 }
